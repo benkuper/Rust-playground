@@ -1,5 +1,5 @@
 <script lang="ts">
-  import "../app.css";
+  import "$golden_ui/styles.css";
 
   const { children } = $props();
 </script>

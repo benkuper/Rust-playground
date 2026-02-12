@@ -30,6 +30,7 @@
     {#each collectParamNodes($selectedNode.node_id, $nodeById) as paramNodeId (paramNodeId)}
       {#if $paramById.get(paramNodeId)}
         <ParamControl
+          node={$nodeById.get(paramNodeId)}
           param={$paramById.get(paramNodeId)}
           onChange={(value) => engineStore.setParam(paramNodeId, value)}
         />

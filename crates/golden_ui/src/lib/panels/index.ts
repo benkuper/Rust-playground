@@ -3,7 +3,7 @@ import InspectorPanel from "./core/InspectorPanel.svelte";
 import ParamsPanel from "./core/ParamsPanel.svelte";
 import EventsPanel from "./core/EventsPanel.svelte";
 import StatsPanel from "./core/StatsPanel.svelte";
-import { appPanels, type PanelDefinition } from "../app/panels";
+import type { PanelDefinition } from "../app/panels";
 
 export const corePanels: PanelDefinition[] = [
   {
@@ -38,4 +38,6 @@ export const corePanels: PanelDefinition[] = [
   }
 ];
 
-export const panels = [...corePanels, ...appPanels];
+export function buildPanels(appPanels: PanelDefinition[] = []): PanelDefinition[] {
+  return [...corePanels, ...appPanels];
+}

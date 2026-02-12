@@ -1160,8 +1160,9 @@ dependencies = [
  "golden_core",
  "golden_net",
  "golden_schema",
+ "tauri",
+ "tauri-build",
  "tokio",
- "uuid",
 ]
 
 [[package]]
@@ -1170,6 +1171,7 @@ version = "0.1.0"
 dependencies = [
  "golden_schema",
  "serde_json",
+ "slotmap",
  "uuid",
 ]
 
@@ -1214,19 +1216,6 @@ name = "golden_schema"
 version = "0.1.0"
 dependencies = [
  "serde",
- "uuid",
-]
-
-[[package]]
-name = "golden_tauri"
-version = "0.1.0"
-dependencies = [
- "golden_core",
- "golden_prelude",
- "golden_schema",
- "tauri",
- "tauri-build",
- "tokio",
  "uuid",
 ]
 
@@ -2247,6 +2236,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 
 [[package]]
+name = "playground_demo"
+version = "0.1.0"
+dependencies = [
+ "golden_app",
+ "golden_core",
+ "golden_prelude",
+ "golden_schema",
+ "uuid",
+]
+
+[[package]]
 name = "plist"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2869,6 +2869,15 @@ name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
+
+[[package]]
+name = "slotmap"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bdd58c3c93c3d278ca835519292445cb4b0d4dc59ccfdf7ceadaab3f8aeb4038"
+dependencies = [
+ "version_check",
+]
 
 [[package]]
 name = "smallvec"

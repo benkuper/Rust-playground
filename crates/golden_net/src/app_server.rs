@@ -134,7 +134,7 @@ async fn handle_socket(engine: Arc<Mutex<Engine>>, socket: WebSocket) {
                         subscription_task = Some(tokio::spawn(async move {
                             let mut last_time = subscribe.from;
                             let mut interval =
-                                tokio::time::interval(std::time::Duration::from_millis(16));
+                                tokio::time::interval(std::time::Duration::from_millis(8));
                             loop {
                                 interval.tick().await;
                                 let events = {

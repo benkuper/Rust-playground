@@ -1,4 +1,5 @@
 <script lang="ts">
+    import TreeView from "./TreeView.svelte";
     import { formatValue } from "../utils/values";
 
     type NodeId = number | string;
@@ -51,7 +52,7 @@
             <div class="list">
                 {#each root.children as childId (childId)}
                     {#if nodeById?.get(childId)}
-                        <svelte:self
+                        <TreeView
                             root={nodeById.get(childId)}
                             {nodeById}
                             {paramById}

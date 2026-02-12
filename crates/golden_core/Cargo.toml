@@ -7,3 +7,4 @@ edition = "2024"
 golden_schema = { path = "../golden_schema" }
 uuid = { version = "1", features = ["v4"] }
 serde_json = "1"
+slotmap = "1"

@@ -1,11 +1,14 @@
 [package]
 name = "golden_app"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 golden_core = { path = "../golden_core" }
 golden_schema = { path = "../golden_schema" }
-uuid = { version = "1", features = ["v4"] }
 golden_net = { path = "../golden_net" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal"] }
+tauri = "1"
+
+[build-dependencies]
+tauri-build = "1"

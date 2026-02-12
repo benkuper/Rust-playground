@@ -3,7 +3,7 @@
     "beforeDevCommand": "",
     "beforeBuildCommand": "",
     "devPath": "http://localhost:5173",
-    "distDir": "../golden_ui/build"
+    "distDir": "../../src-ui/build"
   },
   "package": {
     "productName": "Golden Core",

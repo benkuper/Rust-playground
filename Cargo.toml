@@ -1,11 +1,23 @@
+[package]
+name = "playground_demo"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+golden_prelude = { path = "crates/golden_prelude" }
+golden_app = { path = "crates/golden_app" }
+golden_core = { path = "crates/golden_core" }
+golden_schema = { path = "crates/golden_schema" }
+uuid = { version = "1", features = ["v4"] }
+
 [workspace]
 resolver = "2"
 members = [
+	".",
 	"crates/golden_schema",
 	"crates/golden_core",
 	"crates/golden_prelude",
 	"crates/golden_macros",
 	"crates/golden_app",
 	"crates/golden_net",
-	"crates/golden_tauri",
 ]

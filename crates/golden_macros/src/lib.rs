@@ -94,6 +94,31 @@ pub fn golden_node(input: TokenStream) -> TokenStream {
 
     let node_type = ident.to_string();
     let container_decl = container_decl.unwrap_or_else(|| quote! { None });
+    let has_attr_schema = !(param_decls.is_empty()
+        && folder_decls.is_empty()
+        && declared_children.is_empty()
+        && potential_slots.is_empty());
+
+    let schema_tokens = if has_attr_schema {
+        quote! {
+            let mut schema = golden_core::schema::NodeSchema::new();
+            schema.declared_children = vec![#(#declared_children),*];
+            schema.potential_slots = vec![#(#potential_slots),*];
+            schema.params = vec![#(#param_decls),*];
+            schema.folders = vec![#(#folder_decls),*];
+            schema.container = #container_decl;
+            schema
+        }
+    } else {
+        quote! {
+            let mut schema = golden_core::schema::NodeSchema::new();
+            schema.declared_children = Self::declared_children();
+            schema.params = Self::param_decls();
+            schema.folders = Self::folder_decls();
+            schema.container = #container_decl;
+            schema
+        }
+    };
 
     let expanded = quote! {
         impl golden_core::schema::GoldenNodeDecl for #ident {
@@ -102,13 +127,7 @@ pub fn golden_node(input: TokenStream) -> TokenStream {
             }
 
             fn schema() -> golden_core::schema::NodeSchema {
-                let mut schema = golden_core::schema::NodeSchema::new();
-                schema.declared_children = vec![#(#declared_children),*];
-                schema.potential_slots = vec![#(#potential_slots),*];
-                schema.params = vec![#(#param_decls),*];
-                schema.folders = vec![#(#folder_decls),*];
-                schema.container = #container_decl;
-                schema
+                #schema_tokens
             }
         }
     };

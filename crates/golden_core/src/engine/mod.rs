@@ -6,6 +6,7 @@ use std::collections::{HashMap, VecDeque};
 use golden_schema::{
     DeclId, Event, EventKind, EventTime, NodeId, NodeMeta, NodeTypeId, NodeUuid, ShortName, Value,
 };
+use slotmap::{new_key_type, Key, KeyData, SlotMap};
 use uuid::Uuid;
 
 use crate::edits::{Edit, EditOrigin, EditQueue, EditRequest, Propagation};
@@ -17,33 +18,126 @@ use crate::schema::{NodeSchema, SchemaRegistry};
 
 pub use process_ctx::{EnginePhase, ProcessCtx};
 
+new_key_type! {
+    struct NodeKey;
+}
+
+#[derive(Default)]
+pub struct NodeStore {
+    inner: SlotMap<NodeKey, Node>,
+}
+
+impl NodeStore {
+    pub fn new() -> Self {
+        Self {
+            inner: SlotMap::with_key(),
+        }
+    }
+
+    pub fn insert(&mut self, mut node: Node) -> NodeId {
+        node.id = NodeId(0);
+        let key = self.inner.insert(node);
+        let id = Self::id_from_key(key);
+        if let Some(inserted) = self.inner.get_mut(key) {
+            inserted.id = id;
+        }
+        id
+    }
+
+    pub fn get(&self, id: &NodeId) -> Option<&Node> {
+        self.inner.get(Self::key_from_id(*id))
+    }
+
+    pub fn get_mut(&mut self, id: &NodeId) -> Option<&mut Node> {
+        self.inner.get_mut(Self::key_from_id(*id))
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &Node> {
+        self.inner.values()
+    }
+
+    pub fn keys(&self) -> impl Iterator<Item = NodeId> + '_ {
+        self.inner.keys().map(Self::id_from_key)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (NodeId, &Node)> {
+        self.inner.iter().map(|(key, node)| (Self::id_from_key(key), node))
+    }
+
+    fn id_from_key(key: NodeKey) -> NodeId {
+        NodeId(key.data().as_ffi())
+    }
+
+    fn key_from_id(id: NodeId) -> NodeKey {
+        NodeKey::from(KeyData::from_ffi(id.0))
+    }
+}
+
 pub struct Engine {
     pub time: EventTime,
-    pub nodes: HashMap<NodeId, Node>,
+    pub nodes: NodeStore,
     pub inboxes: HashMap<NodeId, Inbox>,
     pub subscriptions: Vec<ListenerSpec>,
     pub pending_edits: Vec<EditRequest>,
     pub schema: SchemaRegistry,
     pub event_log: VecDeque<Event>,
-    next_id: u64,
+    root: NodeId,
 }
 
 impl Engine {
     pub fn new() -> Self {
-        Self {
+        let mut engine = Self {
             time: EventTime {
                 tick: 0,
                 micro: 0,
                 seq: 0,
             },
-            nodes: HashMap::new(),
+            nodes: NodeStore::new(),
             inboxes: HashMap::new(),
             subscriptions: Vec::new(),
             pending_edits: Vec::new(),
             schema: SchemaRegistry::new(),
             event_log: VecDeque::new(),
-            next_id: 1,
+            root: NodeId(0),
+        };
+
+        let mut root_meta = engine.create_meta("root");
+        root_meta.decl_id = DeclId("root".to_string());
+        root_meta.short_name = ShortName("root".to_string());
+        root_meta.label = "root".to_string();
+
+        let root = engine.create_node(
+            NodeTypeId("Root".to_string()),
+            NodeExecution::Passive,
+            NodeData::Container(Self::default_container_data()),
+            root_meta,
+            None,
+        );
+        engine.root = root;
+
+        engine
+    }
+
+    pub fn root_id(&self) -> NodeId {
+        self.root
+    }
+
+    pub fn find_descendant_by_decl(&self, parent: NodeId, decl_id: &str) -> Option<NodeId> {
+        let mut current = self.nodes.get(&parent).and_then(|node| node.first_child);
+        while let Some(node_id) = current {
+            if let Some(node) = self.nodes.get(&node_id) {
+                if node.meta.decl_id.0 == decl_id {
+                    return Some(node_id);
+                }
+                if let Some(found) = self.find_descendant_by_decl(node_id, decl_id) {
+                    return Some(found);
+                }
+                current = node.next_sibling;
+            } else {
+                break;
+            }
         }
+        None
     }
 
     pub fn register_schema(&mut self, node_type: NodeTypeId, schema: NodeSchema) {
@@ -73,11 +167,9 @@ impl Engine {
         meta: NodeMeta,
         behaviour: Option<Box<dyn NodeBehaviour>>,
     ) -> NodeId {
-        let node_id = NodeId(self.next_id);
-        self.next_id += 1;
         let node = Node {
-            id: node_id,
-            node_type,
+            id: NodeId(0),
+            node_type: node_type.clone(),
             execution,
             parent: None,
             first_child: None,
@@ -88,10 +180,80 @@ impl Engine {
             data,
             behaviour,
         };
-        self.nodes.insert(node_id, node);
+        let node_id = self.nodes.insert(node);
         self.inboxes.insert(node_id, Inbox::new());
         self.emit_event(EventKind::NodeCreated { node: node_id });
+        self.instantiate_declared_children(node_id, &node_type);
         node_id
+    }
+
+    pub fn create_container_node(&mut self, node_type: &str, label: &str) -> NodeId {
+        self.create_node(
+            NodeTypeId(node_type.to_string()),
+            NodeExecution::Reactive,
+            NodeData::Container(Self::default_container_data()),
+            self.create_meta(label),
+            None,
+        )
+    }
+
+    pub fn create_child_container(&mut self, parent: NodeId, node_type: &str, label: &str) -> NodeId {
+        let child = self.create_container_node(node_type, label);
+        self.add_child(parent, child);
+        child
+    }
+
+    pub fn create_parameter_node(&mut self, label: &str, value: Value) -> NodeId {
+        self.create_node(
+            NodeTypeId("Parameter".to_string()),
+            NodeExecution::Passive,
+            NodeData::Parameter(crate::data::ParameterData {
+                value: value.clone(),
+                default: Some(value),
+                read_only: false,
+                update: golden_schema::UpdatePolicy::Immediate,
+                save: golden_schema::SavePolicy::Delta,
+                change: golden_schema::ChangePolicy::ValueChange,
+                constraints: golden_schema::ValueConstraints::None,
+            }),
+            self.create_meta(label),
+            None,
+        )
+    }
+
+    pub fn create_child_parameter(&mut self, parent: NodeId, label: &str, value: Value) -> NodeId {
+        let child = self.create_parameter_node(label, value);
+        self.add_child(parent, child);
+        child
+    }
+
+    pub fn create_behaviour_node(
+        &mut self,
+        node_type: &str,
+        label: &str,
+        execution: NodeExecution,
+        behaviour: Box<dyn NodeBehaviour>,
+    ) -> NodeId {
+        self.create_node(
+            NodeTypeId(node_type.to_string()),
+            execution,
+            NodeData::None,
+            self.create_meta(label),
+            Some(behaviour),
+        )
+    }
+
+    pub fn create_child_behaviour_node(
+        &mut self,
+        parent: NodeId,
+        node_type: &str,
+        label: &str,
+        execution: NodeExecution,
+        behaviour: Box<dyn NodeBehaviour>,
+    ) -> NodeId {
+        let child = self.create_behaviour_node(node_type, label, execution, behaviour);
+        self.add_child(parent, child);
+        child
     }
 
     pub fn add_child(&mut self, parent: NodeId, child: NodeId) {
@@ -121,6 +283,153 @@ impl Engine {
             child_node.next_sibling = None;
         }
         self.emit_event(EventKind::ChildAdded { parent, child });
+    }
+
+    fn instantiate_declared_children(&mut self, parent: NodeId, parent_type: &NodeTypeId) {
+        let Some(schema) = self.schema.schema_for(parent_type).cloned() else {
+            return;
+        };
+
+        let mut folder_nodes = HashMap::<String, NodeId>::new();
+        for folder in &schema.folders {
+            let folder_id = self.ensure_folder_path(parent, &folder.decl_id.0, folder.label.clone());
+            folder_nodes.insert(folder.decl_id.0.clone(), folder_id);
+        }
+
+        for param in &schema.params {
+            let mut meta = self.create_meta(&param.decl_id.0);
+            meta.decl_id = param.decl_id.clone();
+            meta.short_name = ShortName(param.decl_id.0.clone());
+            meta.label = param.decl_id.0.clone();
+            meta.semantics = param.semantics.clone();
+            meta.presentation = param.presentation.clone();
+
+            let node = self.create_node(
+                NodeTypeId("Parameter".to_string()),
+                NodeExecution::Passive,
+                NodeData::Parameter(crate::data::ParameterData {
+                    value: param.default.clone(),
+                    default: Some(param.default.clone()),
+                    read_only: param.read_only,
+                    update: param.update,
+                    save: param.save,
+                    change: param.change,
+                    constraints: param.constraints.clone(),
+                }),
+                meta,
+                None,
+            );
+
+            let target_parent = param
+                .folder
+                .as_ref()
+                .and_then(|decl| folder_nodes.get(&decl.0).copied())
+                .unwrap_or(parent);
+
+            self.add_child(target_parent, node);
+        }
+
+        for child in &schema.declared_children {
+            if child.node_type.0 == "Parameter" || child.node_type.0 == "Folder" {
+                continue;
+            }
+
+            let mut meta = self.create_meta(
+                child
+                    .default_label
+                    .as_deref()
+                    .unwrap_or(child.decl_id.0.as_str()),
+            );
+            meta.decl_id = child.decl_id.clone();
+            meta.enabled = child.default_enabled;
+            if let Some(label) = &child.default_label {
+                meta.label = label.clone();
+            }
+
+            let data = self
+                .schema
+                .schema_for(&child.node_type)
+                .and_then(|child_schema| child_schema.container.as_ref())
+                .map(|container| {
+                    NodeData::Container(crate::data::ContainerData {
+                        allowed_types: container.allowed_types.clone(),
+                        folders: container.folders.clone(),
+                        limits: crate::data::ContainerLimits { max_children: None },
+                    })
+                })
+                .unwrap_or(NodeData::None);
+
+            let child_node = self.create_node(
+                child.node_type.clone(),
+                NodeExecution::Passive,
+                data,
+                meta,
+                None,
+            );
+            self.add_child(parent, child_node);
+        }
+    }
+
+    fn ensure_folder_path(&mut self, parent: NodeId, path: &str, label: Option<String>) -> NodeId {
+        let mut current_parent = parent;
+        let mut prefix = String::new();
+        for segment in path.split('.') {
+            if !prefix.is_empty() {
+                prefix.push('.');
+            }
+            prefix.push_str(segment);
+
+            if let Some(existing) = self.find_direct_child_by_decl(current_parent, &prefix) {
+                current_parent = existing;
+                continue;
+            }
+
+            let mut meta = self.create_meta(segment);
+            meta.decl_id = DeclId(prefix.clone());
+            meta.short_name = ShortName(segment.to_string());
+            if prefix == path {
+                if let Some(folder_label) = &label {
+                    meta.label = folder_label.clone();
+                } else {
+                    meta.label = segment.to_string();
+                }
+            } else {
+                meta.label = segment.to_string();
+            }
+
+            let folder_node = self.create_node(
+                NodeTypeId("Folder".to_string()),
+                NodeExecution::Passive,
+                NodeData::Container(Self::default_container_data()),
+                meta,
+                None,
+            );
+            self.add_child(current_parent, folder_node);
+            current_parent = folder_node;
+        }
+        current_parent
+    }
+
+    fn find_direct_child_by_decl(&self, parent: NodeId, decl_id: &str) -> Option<NodeId> {
+        let mut current = self.nodes.get(&parent).and_then(|node| node.first_child);
+        while let Some(node_id) = current {
+            let Some(node) = self.nodes.get(&node_id) else {
+                break;
+            };
+            if node.meta.decl_id.0 == decl_id {
+                return Some(node_id);
+            }
+            current = node.next_sibling;
+        }
+        None
+    }
+
+    fn default_container_data() -> crate::data::ContainerData {
+        crate::data::ContainerData {
+            allowed_types: crate::data::AllowedTypes::Any,
+            folders: crate::data::FolderPolicy::Allowed,
+            limits: crate::data::ContainerLimits { max_children: None },
+        }
     }
 
     pub fn subscribe(&mut self, spec: ListenerSpec) {
@@ -193,7 +502,7 @@ impl Engine {
     }
 
     fn run_update_pass(&mut self) {
-        let node_ids: Vec<NodeId> = self.nodes.keys().copied().collect();
+        let node_ids: Vec<NodeId> = self.nodes.keys().collect();
         for node_id in node_ids {
             let should_update = self
                 .nodes
@@ -228,9 +537,9 @@ impl Engine {
 
     fn snapshot_param_values(&self) -> HashMap<NodeId, Value> {
         let mut values = HashMap::new();
-        for (id, node) in &self.nodes {
+        for (id, node) in self.nodes.iter() {
             if let NodeData::Parameter(param) = &node.data {
-                values.insert(*id, param.value.clone());
+                values.insert(id, param.value.clone());
             }
         }
         values

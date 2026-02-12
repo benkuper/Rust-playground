@@ -112,6 +112,63 @@ function requestSnapshot() {
   });
 }
 
+function normalizeNodeId(value: unknown): NodeId | null {
+  if (typeof value === "number" || typeof value === "string") {
+    return value;
+  }
+  if (value && typeof value === "object" && "0" in (value as Record<string, unknown>)) {
+    const inner = (value as Record<string, unknown>)["0"];
+    if (typeof inner === "number" || typeof inner === "string") {
+      return inner;
+    }
+  }
+  return null;
+}
+
+function applyParamChangedEvents(batchEvents: Event[]) {
+  const changed = new Map<NodeId, unknown>();
+
+  for (const event of batchEvents) {
+    const kind = event.kind;
+    if (!kind || typeof kind !== "object") {
+      continue;
+    }
+    if (!("ParamChanged" in kind)) {
+      continue;
+    }
+
+    const payload = (kind as Record<string, unknown>).ParamChanged as
+      | { param?: unknown; value?: unknown }
+      | undefined;
+    if (!payload) {
+      continue;
+    }
+
+    const nodeId = normalizeNodeId(payload.param);
+    if (nodeId === null) {
+      continue;
+    }
+
+    changed.set(nodeId, payload.value);
+  }
+
+  if (changed.size === 0) {
+    return;
+  }
+
+  params.update((current) =>
+    current.map((param) => {
+      if (!changed.has(param.param_node_id)) {
+        return param;
+      }
+      return {
+        ...param,
+        value: changed.get(param.param_node_id)
+      };
+    })
+  );
+}
+
 function subscribe(from: EventTime) {
   send({
     msg: "Subscribe",
@@ -143,14 +200,16 @@ function connect() {
       subscribe(envelope.payload.as_of);
     }
     if (envelope.msg === "EventBatch") {
+      const batchEvents = (envelope.payload.events ?? []) as Event[];
       events.update((current) => {
-        const next = [...(envelope.payload.events ?? []), ...current];
+        const next = [...batchEvents, ...current];
         return next.slice(0, 200);
       });
-      const last = envelope.payload.events?.at(-1);
+      const last = batchEvents.at(-1);
       if (last?.time) {
         eventTime.set(last.time);
       }
+      applyParamChangedEvents(batchEvents);
     }
   });
 

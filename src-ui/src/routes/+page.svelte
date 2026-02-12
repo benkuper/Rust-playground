@@ -1,10 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { engineStore } from "../lib/stores/engine";
-  import { panels } from "../lib/panels";
+  import { engineStore } from "$golden_ui/stores/engine";
+  import { buildPanels } from "$golden_ui/panels";
+  import type { PanelDefinition } from "$golden_ui/app/panels";
   import { appConfig } from "../lib/app/config";
+  import { appPanels } from "../lib/app/panels";
 
   const { status, eventTime } = engineStore;
+  const panels: PanelDefinition[] = buildPanels(appPanels);
 
   let activePanels = $state(
     panels
@@ -14,7 +17,7 @@
 
   const togglePanel = (panelId: string) => {
     if (activePanels.includes(panelId)) {
-      activePanels = activePanels.filter((id) => id !== panelId);
+      activePanels = activePanels.filter((id: string) => id !== panelId);
     } else {
       activePanels = [...activePanels, panelId];
     }
@@ -35,7 +38,7 @@
     </div>
 
     <div class="nav-section">
-      <span class="nav-title">Core Panels</span>
+      <span class="nav-title">Panels</span>
       {#each panels as panel (panel.id)}
         <button class="nav-item" onclick={() => togglePanel(panel.id)}>
           <span>{panel.title}</span>
@@ -60,7 +63,7 @@
   <main class="content">
     <header class="topbar">
       <div>
-        <h2>Golden Core UI</h2>
+        <h2>Golden UI Host</h2>
         <p class="panel-subtitle">{appConfig.statusNote}</p>
       </div>
       <div class="status-pill">

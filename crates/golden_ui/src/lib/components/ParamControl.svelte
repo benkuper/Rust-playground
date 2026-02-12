@@ -7,12 +7,18 @@
     semantics?: { intent?: string | null } | null;
   };
 
+  type NodeDto = 
+  {
+    meta?: { label?: String | null } | null
+  }
+
   type Props = {
+    node?: NodeDto | null
     param?: ParamDto | null;
     onChange?: (value: unknown) => void;
   };
 
-  const { param = null, onChange = () => {} } = $props<Props>();
+  const { node = null, param = null, onChange = () => {} } = $props<Props>();
 
   const info = $derived(unwrapValue(param?.value));
   const bounds = $derived(constraintBounds(param?.constraints));
@@ -27,12 +33,13 @@
     const value = raw === "" ? 0 : Number(raw);
     emit(info.kind === "Int" ? Math.trunc(value) : value);
   };
+
 </script>
 
 {#if param}
   <div class="param-control">
     <div>
-      <div class="param-label">{param.semantics?.intent ?? "Parameter"}</div>
+      <div class="param-label">{param.semantics?.intent ?? node.meta.label}</div>
       <div class="mono">{formatValue(param.value)}</div>
     </div>
 
