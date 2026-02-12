@@ -8,5 +8,5 @@
     "rust-analyzer.rustfmt.extraArgs": [
         "--config",
         "max_width=100,use_small_heuristics=Off"
-    ]
+    ],
 }

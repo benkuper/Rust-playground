@@ -196,7 +196,7 @@ fn build_param_decl(
     let behavior_tokens = behavior_tokens(&args.behavior);
     let read_only = args.read_only;
     let update_tokens = update_policy_tokens(&args.update);
-    let change_tokens = change_policy_tokens(&args.change);
+    let change_tokens = change_policy_tokens_with_kind(&args.change, &kind);
     let save_tokens = save_policy_tokens(&args.save);
     let folder_tokens = args.folder.as_ref().map(|value| {
         let decl = value.value();
@@ -962,6 +962,16 @@ fn change_policy_tokens(change: &Option<LitStr>) -> proc_macro2::TokenStream {
     }
 }
 
+fn change_policy_tokens_with_kind(
+    change: &Option<LitStr>,
+    kind: &ParamKind,
+) -> proc_macro2::TokenStream {
+    if change.is_none() && matches!(kind, ParamKind::Trigger) {
+        return quote! { golden_schema::ChangePolicy::Always };
+    }
+    change_policy_tokens(change)
+}
+
 fn save_policy_tokens(save: &Option<LitStr>) -> proc_macro2::TokenStream {
     match save.as_ref().map(|value| value.value()) {
         Some(value) if value == "None" => quote! { golden_schema::SavePolicy::None },
@@ -1202,6 +1212,7 @@ fn collect_params_from_item(
                 .unwrap_or_else(|| quote! { None });
 
             let behavior_tokens = behavior_tokens(&args.behavior);
+            let change_tokens = change_policy_tokens_with_kind(&args.change, &kind);
             let semantics_tokens = semantics_tokens(&args.semantics, &args.unit);
             let alias_tokens = if param.options.direct_access {
                 let mut alias = param.name.to_string();
@@ -1223,7 +1234,7 @@ fn collect_params_from_item(
                     constraints: #constraints_tokens,
                     read_only: false,
                     update: golden_schema::UpdatePolicy::Immediate,
-                    change: golden_schema::ChangePolicy::ValueChange,
+                    change: #change_tokens,
                     save: golden_schema::SavePolicy::Delta,
                     semantics: #semantics_tokens,
                     presentation: golden_schema::PresentationHint { widget: None },

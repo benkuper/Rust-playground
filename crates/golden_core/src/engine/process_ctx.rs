@@ -18,16 +18,34 @@ pub struct ProcessCtx {
 
 impl ProcessCtx {
     pub fn set_param(&mut self, node: NodeId, value: Value) {
+        self.set_param_with(node, value, Propagation::EndOfTick);
+    }
+
+    pub fn set_param_with(&mut self, node: NodeId, value: Value, propagation: Propagation) {
         self.edits.push(
-            Edit::SetParam { node, value },
-            Propagation::EndOfTick,
+            Edit::SetParam {
+                node,
+                value,
+            },
+            propagation,
             EditOrigin::Internal,
         );
     }
 
+    pub fn set_param_immediate(&mut self, node: NodeId, value: Value) {
+        self.set_param_with(node, value, Propagation::Immediate);
+    }
+
+    pub fn set_param_next_tick(&mut self, node: NodeId, value: Value) {
+        self.set_param_with(node, value, Propagation::NextTick);
+    }
+
     pub fn patch_meta(&mut self, node: NodeId, patch: NodeMetaPatch) {
         self.edits.push(
-            Edit::PatchMeta { node, patch },
+            Edit::PatchMeta {
+                node,
+                patch,
+            },
             Propagation::EndOfTick,
             EditOrigin::Internal,
         );

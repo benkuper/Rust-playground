@@ -27,13 +27,20 @@ impl OscOutput {
 
         drive: f64 = 0.0;
         value: f64 = 0.5;
-        panic: Trigger (behavior="Append");
+        panic: Trigger (behavior="Append"); 
     }
 }
 
 impl NodeReactive for OscOutput {
-    fn process(&mut self, ctx: &mut ProcessCtx) {
-        //check events
+    fn on_param_change(&mut self, ctx: &mut ProcessCtx, nodeId: schema::NodeId, value: Value) {
+        println!("param changed: {value}");
+
+        //check if the changed parameter is the panic trigger
+        if nodeId == self.panic.node_id {
+            self.drive.set_immediate(ctx, 0.0);
+            println!("Panic triggered! Drive reset to 0.0");
+
+        }
     }
 }
 
@@ -48,35 +55,6 @@ fn build_demo_engine() -> Engine {
     let _mappings = engine.create_child_container(root, "Mappings", "mappings");
 
     let osc = engine.create_child_container(outputs, "OscOutput", "osc_output");
-
-    let intensity = engine
-        .find_descendant_by_decl(osc, "intensity")
-        .expect("missing declared param: intensity");
-    let host = engine.find_descendant_by_decl(osc, "host").expect("missing declared param: host");
-
-    let host_uuid =
-        engine.nodes.get(&host).map(|node| node.meta.uuid).expect("missing host node meta uuid");
-
-    //Creating dynamically
-    let _target = engine.create_child_parameter(
-        osc,
-        "target",
-        Value::Reference(schema::ReferenceValue {
-            uuid: host_uuid,
-            cached_id: Some(host),
-        }),
-    );
-
-    engine.enqueue_edit(
-        Edit::SetParam {
-            node: intensity,
-            value: Value::Float(0.8),
-        },
-        Propagation::EndOfTick,
-        EditOrigin::UI,
-    );
-
-    engine.tick();
 
     engine
 }

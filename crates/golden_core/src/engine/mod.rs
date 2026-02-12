@@ -6,7 +6,7 @@ use std::collections::{HashMap, VecDeque};
 use golden_schema::{
     DeclId, Event, EventKind, EventTime, NodeId, NodeMeta, NodeTypeId, NodeUuid, ShortName, Value,
 };
-use slotmap::{new_key_type, Key, KeyData, SlotMap};
+use slotmap::{Key, KeyData, SlotMap, new_key_type};
 use uuid::Uuid;
 
 use crate::edits::{Edit, EditOrigin, EditQueue, EditRequest, Propagation};
@@ -145,7 +145,11 @@ impl Engine {
     }
 
     pub fn create_meta(&self, label: &str) -> NodeMeta {
-        let short = if label.is_empty() { "node" } else { label };
+        let short = if label.is_empty() {
+            "node"
+        } else {
+            label
+        };
         NodeMeta {
             uuid: NodeUuid(Uuid::new_v4()),
             decl_id: DeclId(short.to_string()),
@@ -182,7 +186,9 @@ impl Engine {
         };
         let node_id = self.nodes.insert(node);
         self.inboxes.insert(node_id, Inbox::new());
-        self.emit_event(EventKind::NodeCreated { node: node_id });
+        self.emit_event(EventKind::NodeCreated {
+            node: node_id,
+        });
         self.instantiate_declared_children(node_id, &node_type);
         node_id
     }
@@ -197,7 +203,12 @@ impl Engine {
         )
     }
 
-    pub fn create_child_container(&mut self, parent: NodeId, node_type: &str, label: &str) -> NodeId {
+    pub fn create_child_container(
+        &mut self,
+        parent: NodeId,
+        node_type: &str,
+        label: &str,
+    ) -> NodeId {
         let child = self.create_container_node(node_type, label);
         self.add_child(parent, child);
         child
@@ -267,7 +278,10 @@ impl Engine {
                 child_node.prev_sibling = None;
                 child_node.next_sibling = None;
             }
-            self.emit_event(EventKind::ChildAdded { parent, child });
+            self.emit_event(EventKind::ChildAdded {
+                parent,
+                child,
+            });
             return;
         };
 
@@ -282,7 +296,10 @@ impl Engine {
             child_node.prev_sibling = Some(last_child);
             child_node.next_sibling = None;
         }
-        self.emit_event(EventKind::ChildAdded { parent, child });
+        self.emit_event(EventKind::ChildAdded {
+            parent,
+            child,
+        });
     }
 
     fn instantiate_declared_children(&mut self, parent: NodeId, parent_type: &NodeTypeId) {
@@ -292,7 +309,8 @@ impl Engine {
 
         let mut folder_nodes = HashMap::<String, NodeId>::new();
         for folder in &schema.folders {
-            let folder_id = self.ensure_folder_path(parent, &folder.decl_id.0, folder.label.clone());
+            let folder_id =
+                self.ensure_folder_path(parent, &folder.decl_id.0, folder.label.clone());
             folder_nodes.insert(folder.decl_id.0.clone(), folder_id);
         }
 
@@ -334,12 +352,8 @@ impl Engine {
                 continue;
             }
 
-            let mut meta = self.create_meta(
-                child
-                    .default_label
-                    .as_deref()
-                    .unwrap_or(child.decl_id.0.as_str()),
-            );
+            let mut meta = self
+                .create_meta(child.default_label.as_deref().unwrap_or(child.decl_id.0.as_str()));
             meta.decl_id = child.decl_id.clone();
             meta.enabled = child.default_enabled;
             if let Some(label) = &child.default_label {
@@ -354,18 +368,15 @@ impl Engine {
                     NodeData::Container(crate::data::ContainerData {
                         allowed_types: container.allowed_types.clone(),
                         folders: container.folders.clone(),
-                        limits: crate::data::ContainerLimits { max_children: None },
+                        limits: crate::data::ContainerLimits {
+                            max_children: None,
+                        },
                     })
                 })
                 .unwrap_or(NodeData::None);
 
-            let child_node = self.create_node(
-                child.node_type.clone(),
-                NodeExecution::Passive,
-                data,
-                meta,
-                None,
-            );
+            let child_node =
+                self.create_node(child.node_type.clone(), NodeExecution::Passive, data, meta, None);
             self.add_child(parent, child_node);
         }
     }
@@ -428,12 +439,50 @@ impl Engine {
         crate::data::ContainerData {
             allowed_types: crate::data::AllowedTypes::Any,
             folders: crate::data::FolderPolicy::Allowed,
-            limits: crate::data::ContainerLimits { max_children: None },
+            limits: crate::data::ContainerLimits {
+                max_children: None,
+            },
         }
     }
 
     pub fn subscribe(&mut self, spec: ListenerSpec) {
         self.subscriptions.push(spec);
+    }
+
+    pub fn on_param_change(&mut self, subscriber: NodeId, param: NodeId) {
+        self.subscribe(ListenerSpec::on_param_change(subscriber, param));
+    }
+
+    pub fn on_child_added(&mut self, subscriber: NodeId, parent: NodeId) {
+        self.subscribe(ListenerSpec::on_child_added(subscriber, parent));
+    }
+
+    pub fn on_child_removed(&mut self, subscriber: NodeId, parent: NodeId) {
+        self.subscribe(ListenerSpec::on_child_removed(subscriber, parent));
+    }
+
+    pub fn on_child_replaced(&mut self, subscriber: NodeId, parent: NodeId) {
+        self.subscribe(ListenerSpec::on_child_replaced(subscriber, parent));
+    }
+
+    pub fn on_child_moved(&mut self, subscriber: NodeId, parent: NodeId) {
+        self.subscribe(ListenerSpec::on_child_moved(subscriber, parent));
+    }
+
+    pub fn on_child_reordered(&mut self, subscriber: NodeId, parent: NodeId) {
+        self.subscribe(ListenerSpec::on_child_reordered(subscriber, parent));
+    }
+
+    pub fn on_node_created(&mut self, subscriber: NodeId) {
+        self.subscribe(ListenerSpec::on_node_created(subscriber));
+    }
+
+    pub fn on_node_deleted(&mut self, subscriber: NodeId) {
+        self.subscribe(ListenerSpec::on_node_deleted(subscriber));
+    }
+
+    pub fn on_meta_changed(&mut self, subscriber: NodeId, node: NodeId) {
+        self.subscribe(ListenerSpec::on_meta_changed(subscriber, node));
     }
 
     pub fn enqueue_edit(&mut self, edit: Edit, propagation: Propagation, origin: EditOrigin) {
@@ -556,15 +605,27 @@ impl Engine {
         for request in edits {
             let _ = request.origin;
             match request.edit {
-                Edit::SetParam { node, value } => {
+                Edit::SetParam {
+                    node,
+                    value,
+                } => {
                     if self.set_param(node, value.clone()) {
-                        self.emit_event(EventKind::ParamChanged { param: node, value });
+                        self.emit_event(EventKind::ParamChanged {
+                            param: node,
+                            value,
+                        });
                     }
                 }
-                Edit::PatchMeta { node, patch } => {
+                Edit::PatchMeta {
+                    node,
+                    patch,
+                } => {
                     if let Some(node_ref) = self.nodes.get_mut(&node) {
                         apply_patch(&mut node_ref.meta, &patch);
-                        self.emit_event(EventKind::MetaChanged { node, patch });
+                        self.emit_event(EventKind::MetaChanged {
+                            node,
+                            patch,
+                        });
                     }
                 }
             }
@@ -621,21 +682,15 @@ impl Engine {
 
     fn deliver_to_own_targets(&mut self, event: &Event) {
         for target in event_targets(&event.kind) {
-            self.inboxes
-                .entry(target)
-                .or_insert_with(Inbox::new)
-                .push(event.clone());
+            self.inboxes.entry(target).or_insert_with(Inbox::new).push(event.clone());
         }
     }
 
     fn deliver_to_subscribers(&mut self, event: &Event) {
         for spec in &self.subscriptions {
-            if matches_filter(&spec.filter, event) {
+            if matches_filter(&spec.filter, event, &self.nodes) {
                 let _ = spec.delivery;
-                self.inboxes
-                    .entry(spec.subscriber)
-                    .or_insert_with(Inbox::new)
-                    .push(event.clone());
+                self.inboxes.entry(spec.subscriber).or_insert_with(Inbox::new).push(event.clone());
             }
         }
     }
@@ -647,10 +702,7 @@ impl Engine {
         let Some(parent) = self.nodes.get(&node_for_parent).and_then(|n| n.parent) else {
             return;
         };
-        self.inboxes
-            .entry(parent)
-            .or_insert_with(Inbox::new)
-            .push(event.clone());
+        self.inboxes.entry(parent).or_insert_with(Inbox::new).push(event.clone());
     }
 
     fn flush_immediate(&mut self) {
@@ -660,57 +712,188 @@ impl Engine {
     }
 
     pub fn events_since(&self, since: EventTime) -> Vec<Event> {
-        self.event_log
-            .iter()
-            .filter(|event| event.time > since)
-            .cloned()
-            .collect()
+        self.event_log.iter().filter(|event| event.time > since).cloned().collect()
     }
 }
 
 fn event_targets(kind: &EventKind) -> Vec<NodeId> {
     match kind {
-        EventKind::ParamChanged { param, .. } => vec![*param],
-        EventKind::ChildAdded { parent, child } => vec![*parent, *child],
-        EventKind::ChildRemoved { parent, child } => vec![*parent, *child],
-        EventKind::ChildReplaced { parent, old, new } => vec![*parent, *old, *new],
+        EventKind::ParamChanged {
+            param,
+            ..
+        } => vec![*param],
+        EventKind::ChildAdded {
+            parent,
+            child,
+        } => vec![*parent, *child],
+        EventKind::ChildRemoved {
+            parent,
+            child,
+        } => vec![*parent, *child],
+        EventKind::ChildReplaced {
+            parent,
+            old,
+            new,
+        } => vec![*parent, *old, *new],
         EventKind::ChildMoved {
             child,
             old_parent,
             new_parent,
         } => vec![*child, *old_parent, *new_parent],
-        EventKind::ChildReordered { parent, child } => vec![*parent, *child],
-        EventKind::NodeCreated { node } => vec![*node],
-        EventKind::NodeDeleted { node } => vec![*node],
-        EventKind::MetaChanged { node, .. } => vec![*node],
+        EventKind::ChildReordered {
+            parent,
+            child,
+        } => vec![*parent, *child],
+        EventKind::NodeCreated {
+            node,
+        } => vec![*node],
+        EventKind::NodeDeleted {
+            node,
+        } => vec![*node],
+        EventKind::MetaChanged {
+            node,
+            ..
+        } => vec![*node],
     }
 }
 
 fn event_bubble_source(kind: &EventKind) -> Option<NodeId> {
     match kind {
-        EventKind::ParamChanged { param, .. } => Some(*param),
-        EventKind::MetaChanged { node, .. } => Some(*node),
-        EventKind::ChildAdded { child, .. } => Some(*child),
-        EventKind::ChildRemoved { child, .. } => Some(*child),
-        EventKind::ChildReplaced { new, .. } => Some(*new),
-        EventKind::ChildMoved { child, .. } => Some(*child),
-        EventKind::ChildReordered { child, .. } => Some(*child),
-        EventKind::NodeCreated { node } => Some(*node),
-        EventKind::NodeDeleted { node } => Some(*node),
+        EventKind::ParamChanged {
+            param,
+            ..
+        } => Some(*param),
+        EventKind::MetaChanged {
+            node,
+            ..
+        } => Some(*node),
+        EventKind::ChildAdded {
+            child,
+            ..
+        } => Some(*child),
+        EventKind::ChildRemoved {
+            child,
+            ..
+        } => Some(*child),
+        EventKind::ChildReplaced {
+            new,
+            ..
+        } => Some(*new),
+        EventKind::ChildMoved {
+            child,
+            ..
+        } => Some(*child),
+        EventKind::ChildReordered {
+            child,
+            ..
+        } => Some(*child),
+        EventKind::NodeCreated {
+            node,
+        } => Some(*node),
+        EventKind::NodeDeleted {
+            node,
+        } => Some(*node),
     }
 }
 
-fn matches_filter(filter: &EventFilter, event: &Event) -> bool {
+fn matches_filter(filter: &EventFilter, event: &Event, nodes: &NodeStore) -> bool {
     match filter {
         EventFilter::Node(node_id) => event_targets(&event.kind).contains(node_id),
         EventFilter::Param(node_id) => {
             matches!(&event.kind, EventKind::ParamChanged { param, .. } if param == node_id)
         }
-        EventFilter::Subtree { .. } => false,
+        EventFilter::Subtree {
+            root,
+        } => event_targets(&event.kind)
+            .into_iter()
+            .any(|target| is_node_in_subtree(nodes, *root, target)),
         EventFilter::Kind(kind) => {
             std::mem::discriminant(kind) == std::mem::discriminant(&event.kind)
         }
-        EventFilter::Any(filters) => filters.iter().any(|f| matches_filter(f, event)),
-        EventFilter::All(filters) => filters.iter().all(|f| matches_filter(f, event)),
+        EventFilter::ParamChanged {
+            param,
+        } => {
+            matches!(&event.kind, EventKind::ParamChanged { param: actual, .. } if param.is_none_or(|expected| expected == *actual))
+        }
+        EventFilter::ChildAdded {
+            parent,
+            child,
+        } => {
+            matches!(&event.kind, EventKind::ChildAdded { parent: actual_parent, child: actual_child }
+                if parent.is_none_or(|expected| expected == *actual_parent)
+                    && child.is_none_or(|expected| expected == *actual_child))
+        }
+        EventFilter::ChildRemoved {
+            parent,
+            child,
+        } => {
+            matches!(&event.kind, EventKind::ChildRemoved { parent: actual_parent, child: actual_child }
+                if parent.is_none_or(|expected| expected == *actual_parent)
+                    && child.is_none_or(|expected| expected == *actual_child))
+        }
+        EventFilter::ChildReplaced {
+            parent,
+            old,
+            new,
+        } => {
+            matches!(&event.kind, EventKind::ChildReplaced { parent: actual_parent, old: actual_old, new: actual_new }
+                if parent.is_none_or(|expected| expected == *actual_parent)
+                    && old.is_none_or(|expected| expected == *actual_old)
+                    && new.is_none_or(|expected| expected == *actual_new))
+        }
+        EventFilter::ChildMoved {
+            child,
+            old_parent,
+            new_parent,
+        } => {
+            matches!(&event.kind, EventKind::ChildMoved { child: actual_child, old_parent: actual_old_parent, new_parent: actual_new_parent }
+                if child.is_none_or(|expected| expected == *actual_child)
+                    && old_parent.is_none_or(|expected| expected == *actual_old_parent)
+                    && new_parent.is_none_or(|expected| expected == *actual_new_parent))
+        }
+        EventFilter::ChildReordered {
+            parent,
+            child,
+        } => {
+            matches!(&event.kind, EventKind::ChildReordered { parent: actual_parent, child: actual_child }
+                if parent.is_none_or(|expected| expected == *actual_parent)
+                    && child.is_none_or(|expected| expected == *actual_child))
+        }
+        EventFilter::NodeCreated {
+            node,
+        } => {
+            matches!(&event.kind, EventKind::NodeCreated { node: actual } if node.is_none_or(|expected| expected == *actual))
+        }
+        EventFilter::NodeDeleted {
+            node,
+        } => {
+            matches!(&event.kind, EventKind::NodeDeleted { node: actual } if node.is_none_or(|expected| expected == *actual))
+        }
+        EventFilter::MetaChanged {
+            node,
+        } => {
+            matches!(&event.kind, EventKind::MetaChanged { node: actual, .. } if node.is_none_or(|expected| expected == *actual))
+        }
+        EventFilter::Any(filters) => filters.iter().any(|f| matches_filter(f, event, nodes)),
+        EventFilter::All(filters) => filters.iter().all(|f| matches_filter(f, event, nodes)),
+    }
+}
+
+fn is_node_in_subtree(nodes: &NodeStore, root: NodeId, mut node: NodeId) -> bool {
+    if root == node {
+        return true;
+    }
+
+    loop {
+        let Some(current) = nodes.get(&node) else {
+            return false;
+        };
+        let Some(parent) = current.parent else {
+            return false;
+        };
+        if parent == root {
+            return true;
+        }
+        node = parent;
     }
 }

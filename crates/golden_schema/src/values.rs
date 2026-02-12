@@ -1,3 +1,5 @@
+use core::fmt;
+
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{EnumId, EnumVariantId, NodeId, NodeUuid};
@@ -48,6 +50,30 @@ pub enum Value {
         variant: EnumVariantId,
     },
     Reference(ReferenceValue),
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Bool(v) => write!(f, "{v}"),
+            Value::Int(v) => write!(f, "{v}"),
+            Value::Float(v) => write!(f, "{v}"),
+            Value::String(v) => write!(f, "\"{v}\""),
+            Value::Vec2(v) => write!(f, "Vec2({}, {})", v.x, v.y),
+            Value::Vec3(v) => write!(f, "Vec3({}, {}, {})", v.x, v.y, v.z),
+            Value::ColorRgba(v) => write!(f, "ColorRgba({}, {}, {}, {})", v.r, v.g, v.b, v.a),
+            Value::Trigger => write!(f, "Trigger"),
+            Value::Enum {
+                enum_id,
+                variant,
+            } => write!(f, "Enum({:?}, {:?})", enum_id, variant),
+            Value::Reference(reference) => write!(
+                f,
+                "Reference(uuid: {:?}, cached_id: {:?})",
+                reference.uuid, reference.cached_id
+            ),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
