@@ -1,0 +1,10 @@
+[package]
+name = "golden_prelude"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+golden_core = { path = "../golden_core" }
+golden_schema = { path = "../golden_schema" }
+golden_net = { path = "../golden_net" }
+golden_macros = { path = "../golden_macros" }

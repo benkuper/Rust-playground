@@ -1,0 +1,16 @@
+[package]
+name = "golden_tauri"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tauri = "1"
+
+golden_prelude = { path = "../golden_prelude" }
+golden_core = { path = "../golden_core" }
+golden_schema = { path = "../golden_schema" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time"] }
+uuid = { version = "1", features = ["v4"] }
+
+[build-dependencies]
+tauri-build = "1"

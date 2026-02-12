@@ -1,0 +1,28 @@
+{
+  "build": {
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
+    "devPath": "http://localhost:5173",
+    "distDir": "../golden_ui/build"
+  },
+  "package": {
+    "productName": "Golden Core",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "bundle": {
+      "identifier": "com.golden.core",
+      "icon": []
+    },
+    "windows": [
+      {
+        "title": "Golden Core",
+        "width": 1200,
+        "height": 800
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  }
+}

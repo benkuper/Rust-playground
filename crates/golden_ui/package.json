@@ -1,0 +1,25 @@
+{
+  "name": "golden-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "svelte-kit sync && vite dev --host",
+    "build": "svelte-kit sync && vite build",
+    "preview": "svelte-kit sync && vite preview --host",
+    "sync": "svelte-kit sync",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "svelte": "^5.5.0"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-static": "^3.0.0",
+    "@sveltejs/kit": "^2.10.0",
+    "@sveltejs/vite-plugin-svelte": "^5.1.1",
+    "@types/node": "^22.10.1",
+    "svelte-check": "^4.0.0",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.0"
+  }
+}

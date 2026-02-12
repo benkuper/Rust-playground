@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = [
+	"crates/golden_schema",
+	"crates/golden_core",
+	"crates/golden_prelude",
+	"crates/golden_macros",
+	"crates/golden_app",
+	"crates/golden_net",
+	"crates/golden_tauri",
+]
