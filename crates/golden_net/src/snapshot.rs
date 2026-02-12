@@ -79,6 +79,11 @@ fn node_data_dto(node: &golden_core::Node) -> NodeDataDto {
             container: None,
             parameter: None,
         },
+        _ => NodeDataDto {
+            kind: NodeDataKind::None,
+            container: None,
+            parameter: None,
+        },
     }
 }
 
@@ -87,10 +92,7 @@ fn collect_children(engine: &Engine, node_id: NodeId) -> Vec<NodeId> {
     let mut current = engine.nodes.get(&node_id).and_then(|node| node.first_child);
     while let Some(child_id) = current {
         children.push(child_id);
-        current = engine
-            .nodes
-            .get(&child_id)
-            .and_then(|node| node.next_sibling);
+        current = engine.nodes.get(&child_id).and_then(|node| node.next_sibling);
     }
     children
 }

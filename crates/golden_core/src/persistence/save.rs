@@ -26,11 +26,7 @@ struct ExportNode {
 
 impl ExportNode {
     fn into_record(self) -> NodeRecord {
-        let children = self
-            .children
-            .into_iter()
-            .map(|child| child.into_record())
-            .collect();
+        let children = self.children.into_iter().map(|child| child.into_record()).collect();
         match self.record {
             NodeRecord::Full(mut record) => {
                 record.children = children;
@@ -53,11 +49,7 @@ struct ExportContext<'a> {
 
 impl<'a> ExportContext<'a> {
     fn new(engine: &'a Engine) -> Self {
-        let uuid_map = engine
-            .nodes
-            .values()
-            .map(|node| (node.meta.uuid, node.id))
-            .collect();
+        let uuid_map = engine.nodes.values().map(|node| (node.meta.uuid, node.id)).collect();
         Self {
             engine,
             referenced: HashSet::new(),
@@ -189,6 +181,11 @@ fn node_data_to_dto(data: &NodeData) -> NodeDataDto {
             container: None,
             parameter: None,
         },
+        NodeData::Manager(_) => NodeDataDto {
+            kind: NodeDataKind::Custom("Manager".to_string()),
+            container: None,
+            parameter: None,
+        },
     }
 }
 
@@ -211,11 +208,7 @@ fn collect_children(ctx: &mut ExportContext<'_>, node: &Node) -> Vec<ExportNode>
         if let Some(child_record) = export_node(ctx, child_id, Some(&node.node_type)) {
             children.push(child_record);
         }
-        current = ctx
-            .engine
-            .nodes
-            .get(&child_id)
-            .and_then(|child| child.next_sibling);
+        current = ctx.engine.nodes.get(&child_id).and_then(|child| child.next_sibling);
     }
     children
 }

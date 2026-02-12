@@ -2,6 +2,7 @@ pub mod process_ctx;
 pub mod scheduling;
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 
 use golden_schema::{
     DeclId, Event, EventKind, EventTime, NodeId, NodeMeta, NodeTypeId, NodeUuid, ShortName, Value,
@@ -12,7 +13,7 @@ use uuid::Uuid;
 use crate::edits::{Edit, EditOrigin, EditQueue, EditRequest, Propagation};
 use crate::events::inbox::Inbox;
 use crate::events::routing::subscriptions::{EventFilter, ListenerSpec};
-use crate::graph::node::{Node, NodeBehaviour, NodeData, NodeExecution};
+use crate::graph::node::{ManagerData, Node, NodeBehaviour, NodeBinding, NodeData, NodeExecution};
 use crate::meta::apply_patch;
 use crate::schema::{NodeSchema, SchemaRegistry};
 
@@ -81,6 +82,8 @@ pub struct Engine {
     pub pending_edits: Vec<EditRequest>,
     pub schema: SchemaRegistry,
     pub event_log: VecDeque<Event>,
+    param_values: Arc<HashMap<NodeId, Value>>,
+    meta_values: Arc<HashMap<NodeId, NodeMeta>>,
     root: NodeId,
 }
 
@@ -98,6 +101,8 @@ impl Engine {
             pending_edits: Vec::new(),
             schema: SchemaRegistry::new(),
             event_log: VecDeque::new(),
+            param_values: Arc::new(HashMap::new()),
+            meta_values: Arc::new(HashMap::new()),
             root: NodeId(0),
         };
 
@@ -171,6 +176,12 @@ impl Engine {
         meta: NodeMeta,
         behaviour: Option<Box<dyn NodeBehaviour>>,
     ) -> NodeId {
+        let param_value = match &data {
+            NodeData::Parameter(param) => Some(param.value.clone()),
+            _ => None,
+        };
+        let meta_value = meta.clone();
+
         let node = Node {
             id: NodeId(0),
             node_type: node_type.clone(),
@@ -185,6 +196,10 @@ impl Engine {
             behaviour,
         };
         let node_id = self.nodes.insert(node);
+        if let Some(value) = param_value {
+            Arc::make_mut(&mut self.param_values).insert(node_id, value);
+        }
+        Arc::make_mut(&mut self.meta_values).insert(node_id, meta_value);
         self.inboxes.insert(node_id, Inbox::new());
         self.emit_event(EventKind::NodeCreated {
             node: node_id,
@@ -201,6 +216,33 @@ impl Engine {
             self.create_meta(label),
             None,
         )
+    }
+
+    pub fn create_manager_node(
+        &mut self,
+        node_type: &str,
+        label: &str,
+        manager_data: ManagerData,
+    ) -> NodeId {
+        self.create_node(
+            NodeTypeId(node_type.to_string()),
+            NodeExecution::Reactive,
+            NodeData::Manager(manager_data),
+            self.create_meta(label),
+            None,
+        )
+    }
+
+    pub fn create_child_manager(
+        &mut self,
+        parent: NodeId,
+        node_type: &str,
+        label: &str,
+        manager_data: ManagerData,
+    ) -> NodeId {
+        let child = self.create_manager_node(node_type, label, manager_data);
+        self.add_child(parent, child);
+        child
     }
 
     pub fn create_child_container(
@@ -307,6 +349,10 @@ impl Engine {
             return;
         };
 
+        self.instantiate_declared_children_from_schema(parent, &schema);
+    }
+
+    fn instantiate_declared_children_from_schema(&mut self, parent: NodeId, schema: &NodeSchema) {
         let mut folder_nodes = HashMap::<String, NodeId>::new();
         for folder in &schema.folders {
             let folder_id =
@@ -360,20 +406,7 @@ impl Engine {
                 meta.label = label.clone();
             }
 
-            let data = self
-                .schema
-                .schema_for(&child.node_type)
-                .and_then(|child_schema| child_schema.container.as_ref())
-                .map(|container| {
-                    NodeData::Container(crate::data::ContainerData {
-                        allowed_types: container.allowed_types.clone(),
-                        folders: container.folders.clone(),
-                        limits: crate::data::ContainerLimits {
-                            max_children: None,
-                        },
-                    })
-                })
-                .unwrap_or(NodeData::None);
+            let data = self.default_node_data_for_type(&child.node_type);
 
             let child_node =
                 self.create_node(child.node_type.clone(), NodeExecution::Passive, data, meta, None);
@@ -443,6 +476,91 @@ impl Engine {
                 max_children: None,
             },
         }
+    }
+
+    fn default_node_data_for_type(&self, node_type: &NodeTypeId) -> NodeData {
+        self.schema
+            .schema_for(node_type)
+            .map(Self::default_node_data_from_schema)
+            .unwrap_or(NodeData::None)
+    }
+
+    fn default_node_data_from_schema(schema: &NodeSchema) -> NodeData {
+        schema
+            .container
+            .as_ref()
+            .map(|container| {
+                NodeData::Container(crate::data::ContainerData {
+                    allowed_types: container.allowed_types.clone(),
+                    folders: container.folders.clone(),
+                    limits: crate::data::ContainerLimits {
+                        max_children: None,
+                    },
+                })
+            })
+            .unwrap_or(NodeData::None)
+    }
+
+    fn instantiate_child_from_manager(
+        &mut self,
+        manager: NodeId,
+        node_type: NodeTypeId,
+        label: String,
+        execution: NodeExecution,
+    ) -> Option<NodeId> {
+        let manager_schema = {
+            let manager_node = self.nodes.get(&manager)?;
+            let NodeData::Manager(manager_data) = &manager_node.data else {
+                return None;
+            };
+            let registration = manager_data.registration_for(&node_type)?;
+            registration.schema.clone()
+        };
+
+        let data = Self::default_node_data_from_schema(&manager_schema);
+        let child =
+            self.create_node(node_type.clone(), execution, data, self.create_meta(&label), None);
+        self.add_child(manager, child);
+        self.instantiate_declared_children_from_schema(child, &manager_schema);
+
+        let binding = self.build_node_binding_from_schema(child, &manager_schema);
+        let manager_behaviour = {
+            let manager_node = self.nodes.get(&manager)?;
+            let NodeData::Manager(manager_data) = &manager_node.data else {
+                return None;
+            };
+            manager_data.create_behaviour(&node_type, binding)?
+        };
+
+        if let Some(child_node) = self.nodes.get_mut(&child) {
+            child_node.behaviour = Some(manager_behaviour);
+        }
+
+        Some(child)
+    }
+
+    fn build_node_binding_from_schema(&self, node: NodeId, schema: &NodeSchema) -> NodeBinding {
+        let mut by_decl = HashMap::new();
+
+        for folder in &schema.folders {
+            if let Some(id) = self.find_descendant_by_decl(node, &folder.decl_id.0) {
+                by_decl.insert(folder.decl_id.0.clone(), id);
+            }
+        }
+
+        for param in &schema.params {
+            if let Some(id) = self.find_descendant_by_decl(node, &param.decl_id.0) {
+                by_decl.insert(param.decl_id.0.clone(), id);
+            }
+        }
+
+        for child in &schema.declared_children {
+            if let Some(id) = self.find_descendant_by_decl(node, &child.decl_id.0) {
+                by_decl.insert(child.decl_id.0.clone(), id);
+            }
+        }
+
+        NodeBinding::new(node, by_decl)
     }
 
     pub fn subscribe(&mut self, spec: ListenerSpec) {
@@ -536,7 +654,8 @@ impl Engine {
                 edits: EditQueue::new(),
                 inbox: inbox_events,
                 time: self.time,
-                param_values: self.snapshot_param_values(),
+                param_values: Arc::clone(&self.param_values),
+                meta_values: Arc::clone(&self.meta_values),
             };
 
             if let Some(node) = self.nodes.get_mut(&node_id) {
@@ -546,6 +665,7 @@ impl Engine {
             }
 
             let edits = ctx.edits.drain();
+            drop(ctx);
             self.apply_edit_requests(edits);
         }
     }
@@ -566,7 +686,8 @@ impl Engine {
                 edits: EditQueue::new(),
                 inbox: Vec::new(),
                 time: self.time,
-                param_values: self.snapshot_param_values(),
+                param_values: Arc::clone(&self.param_values),
+                meta_values: Arc::clone(&self.meta_values),
             };
 
             if let Some(node) = self.nodes.get_mut(&node_id) {
@@ -576,22 +697,13 @@ impl Engine {
             }
 
             let edits = ctx.edits.drain();
+            drop(ctx);
             self.apply_edit_requests(edits);
         }
     }
 
     fn has_pending_inboxes(&self) -> bool {
         self.inboxes.values().any(|inbox| !inbox.events.is_empty())
-    }
-
-    fn snapshot_param_values(&self) -> HashMap<NodeId, Value> {
-        let mut values = HashMap::new();
-        for (id, node) in self.nodes.iter() {
-            if let NodeData::Parameter(param) = &node.data {
-                values.insert(id, param.value.clone());
-            }
-        }
-        values
     }
 
     fn take_inbox(&mut self, node_id: NodeId) -> Vec<Event> {
@@ -622,11 +734,21 @@ impl Engine {
                 } => {
                     if let Some(node_ref) = self.nodes.get_mut(&node) {
                         apply_patch(&mut node_ref.meta, &patch);
+                        Arc::make_mut(&mut self.meta_values).insert(node, node_ref.meta.clone());
                         self.emit_event(EventKind::MetaChanged {
                             node,
                             patch,
                         });
                     }
+                }
+                Edit::InstantiateChildFromManager {
+                    manager,
+                    node_type,
+                    label,
+                    execution,
+                } => {
+                    let _ =
+                        self.instantiate_child_from_manager(manager, node_type, label, execution);
                 }
             }
 
@@ -651,6 +773,7 @@ impl Engine {
 
         if changed {
             param.value = value;
+            Arc::make_mut(&mut self.param_values).insert(node, param.value.clone());
         }
 
         changed

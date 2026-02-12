@@ -1,6 +1,82 @@
-use crate::data::{ContainerData, CustomData, ParameterData};
+use std::collections::HashMap;
+
+use crate::data::{ContainerData, CustomData, FolderHandle, ParameterData, ParameterHandle};
 use crate::engine::ProcessCtx;
+use crate::schema::NodeSchema;
 use golden_schema::{NodeId, NodeMeta, NodeMetaPatch, NodeTypeId, Value};
+
+pub struct NodeBinding {
+    pub node_id: NodeId,
+    by_decl: HashMap<String, NodeId>,
+}
+
+impl NodeBinding {
+    pub fn new(node_id: NodeId, by_decl: HashMap<String, NodeId>) -> Self {
+        Self {
+            node_id,
+            by_decl,
+        }
+    }
+
+    pub fn node(&self, decl_id: &str) -> Option<NodeId> {
+        self.by_decl.get(decl_id).copied()
+    }
+
+    pub fn folder(&self, decl_id: &str) -> Option<FolderHandle> {
+        self.node(decl_id).map(FolderHandle::new)
+    }
+
+    pub fn param<T>(&self, decl_id: &str) -> Option<ParameterHandle<T>> {
+        self.node(decl_id).map(ParameterHandle::new)
+    }
+}
+
+pub type NodeBehaviourFactory = Box<dyn Fn(NodeBinding) -> Box<dyn NodeBehaviour> + Send + Sync>;
+
+pub struct ManagerNodeRegistration {
+    pub schema: NodeSchema,
+    pub behaviour_factory: NodeBehaviourFactory,
+}
+
+#[derive(Default)]
+pub struct ManagerData {
+    registrations: HashMap<NodeTypeId, ManagerNodeRegistration>,
+}
+
+impl ManagerData {
+    pub fn new() -> Self {
+        Self {
+            registrations: HashMap::new(),
+        }
+    }
+
+    pub fn register_node_type<F>(&mut self, node_type: NodeTypeId, schema: NodeSchema, factory: F)
+    where
+        F: Fn(NodeBinding) -> Box<dyn NodeBehaviour> + Send + Sync + 'static,
+    {
+        self.registrations.insert(
+            node_type,
+            ManagerNodeRegistration {
+                schema,
+                behaviour_factory: Box::new(factory),
+            },
+        );
+    }
+
+    pub fn registration_for(&self, node_type: &NodeTypeId) -> Option<&ManagerNodeRegistration> {
+        self.registrations.get(node_type)
+    }
+
+    pub fn create_behaviour(
+        &self,
+        node_type: &NodeTypeId,
+        binding: NodeBinding,
+    ) -> Option<Box<dyn NodeBehaviour>> {
+        self.registrations
+            .get(node_type)
+            .map(|registration| (registration.behaviour_factory)(binding))
+    }
+}
 
 pub struct Node {
     pub id: NodeId,
@@ -21,6 +97,7 @@ pub enum NodeData {
     Container(ContainerData),
     Parameter(ParameterData),
     Custom(CustomData),
+    Manager(ManagerData),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

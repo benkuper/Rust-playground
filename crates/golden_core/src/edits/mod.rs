@@ -1,8 +1,10 @@
 pub mod apply;
 pub mod coalesce;
 
+use crate::graph::node::NodeExecution;
 use golden_schema::NodeId;
 use golden_schema::NodeMetaPatch;
+use golden_schema::NodeTypeId;
 use golden_schema::Value;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,6 +25,12 @@ pub enum EditOrigin {
 pub enum Edit {
     SetParam { node: NodeId, value: Value },
     PatchMeta { node: NodeId, patch: NodeMetaPatch },
+    InstantiateChildFromManager {
+        manager: NodeId,
+        node_type: NodeTypeId,
+        label: String,
+        execution: NodeExecution,
+    },
 }
 
 pub struct EditRequest {

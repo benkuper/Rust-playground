@@ -16,7 +16,8 @@ pub use data::{
 pub use engine::{Engine, EnginePhase, ProcessCtx};
 pub use events::{Event, EventKind, EventTime};
 pub use graph::node::{
-    Node, NodeBehaviour, NodeContinuous, NodeData, NodeExecution, NodeLifecycle, NodeReactive,
+    ManagerData, ManagerNodeRegistration, Node, NodeBehaviour, NodeBehaviourFactory, NodeBinding,
+    NodeContinuous, NodeData, NodeExecution, NodeLifecycle, NodeReactive,
 };
 pub use schema::{
     ContainerDecl, DeclaredChild, FolderDecl, GoldenNodeDecl, InboxBehavior, NodeSchema, ParamDecl,

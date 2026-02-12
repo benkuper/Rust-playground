@@ -1,5 +1,9 @@
+use std::sync::Arc;
+
 use crate::edits::{Edit, EditOrigin, EditQueue, Propagation};
-use golden_schema::{Event, EventTime, NodeId, NodeMetaPatch, Value};
+use crate::graph::node::NodeExecution;
+use golden_schema::{Event, EventTime, NodeId, NodeMeta, NodeMetaPatch, Value};
+use golden_schema::NodeTypeId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EnginePhase {
@@ -13,7 +17,8 @@ pub struct ProcessCtx {
     pub edits: EditQueue,
     pub inbox: Vec<Event>,
     pub time: EventTime,
-    pub param_values: std::collections::HashMap<NodeId, Value>,
+    pub param_values: Arc<std::collections::HashMap<NodeId, Value>>,
+    pub meta_values: Arc<std::collections::HashMap<NodeId, NodeMeta>>,
 }
 
 impl ProcessCtx {
@@ -51,7 +56,46 @@ impl ProcessCtx {
         );
     }
 
+    pub fn instantiate_child_from_manager(
+        &mut self,
+        manager: NodeId,
+        node_type: NodeTypeId,
+        label: impl Into<String>,
+    ) {
+        self.instantiate_child_from_manager_with(
+            manager,
+            node_type,
+            label,
+            NodeExecution::Passive,
+            Propagation::EndOfTick,
+        );
+    }
+
+    pub fn instantiate_child_from_manager_with(
+        &mut self,
+        manager: NodeId,
+        node_type: NodeTypeId,
+        label: impl Into<String>,
+        execution: NodeExecution,
+        propagation: Propagation,
+    ) {
+        self.edits.push(
+            Edit::InstantiateChildFromManager {
+                manager,
+                node_type,
+                label: label.into(),
+                execution,
+            },
+            propagation,
+            EditOrigin::Internal,
+        );
+    }
+
     pub fn read_param(&self, node: NodeId) -> Option<&Value> {
         self.param_values.get(&node)
+    }
+
+    pub fn read_meta(&self, node: NodeId) -> Option<&NodeMeta> {
+        self.meta_values.get(&node)
     }
 }
